@@ -1,0 +1,19 @@
+from demucs_onnx import separate, separate_stem
+
+# Full 4-stem bag (default). Auto-downloads from HF on first run, auto
+# picks the best execution provider for this host (CoreML / CUDA / DML).
+stems = separate("Ana Mile.mp3")
+# stems: {"drums": ndarray (2, S), "bass": ..., "other": ..., "vocals": ...}
+
+# Just one stem — 4× faster, 75% less RAM, model size 316 MB instead of 1.26 GB.
+vocals = separate_stem("Ana Mile.mp3", "vocals")
+
+# Smaller download (166 MB per stem instead of 316 MB), no runtime cost.
+stems = separate("Ana Mile.mp3", precision="fp16weights")
+
+# Write straight to MP3, including a karaoke instrumental mix.
+separate(
+    "Ana Mile.mp3", "stems/",
+    output_format="wav", bitrate_kbps=192,
+    mix_stems=("drums", "bass", "other", "piano"), mix_output_name="karaoke",
+)

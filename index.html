@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#121212">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Panel Taxi BLE</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #121212; color: #fff; text-align: center; padding: 15px; margin: 0; }
+    h1 { color: #F3CA20; font-size: 22px; margin: 10px 0 15px; }
+    .status { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; margin-bottom: 12px; background: #333; color: #ff6b6b; }
+    .status.ok { background: #1e4620; color: #4caf50; }
+    .btn { width: 100%; max-width: 350px; padding: 15px; margin: 6px 0; font-size: 16px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; }
+    .btn:active { transform: scale(0.96); }
+    .b-ble { background: #0082FC; color: #fff; margin-bottom: 15px; }
+    .b-libre { background: #27ae60; color: #fff; }
+    .b-ocupado { background: #e74c3c; color: #fff; }
+    .b-repo { background: #8e44ad; color: #fff; }
+    .b-nequi { background: #e10098; color: #fff; }
+    .b-fuera { background: #c0392b; color: #fff; }
+    .b-pico { background: #d35400; color: #fff; }
+    .b-custom { background: #2980b9; color: #fff; margin-top: 8px; }
+    .caja { background: #1e1e1e; padding: 15px; border-radius: 10px; max-width: 350px; margin: 12px auto; box-sizing: border-box; }
+    input[type=range] { width: 100%; accent-color: #F3CA20; margin-top: 8px; }
+    input[type=text] { width: 92%; padding: 12px; border-radius: 8px; border: none; font-size: 16px; text-align: center; text-transform: uppercase; }
+    p { margin: 0; font-size: 14px; color: #ccc; }
+  </style>
+</head>
+<body>
+  <h1>🚕 Panel Kia Picanto</h1>
+  <div id="estado" class="status">Desconectado</div><br>
+  <button class="btn b-ble" onclick="conectarBLE()">🔵 Conectar Bluetooth</button>
+
+  <button class="btn b-libre" onclick="enviar('M:0')">Modo Normal (LIBRE)</button>
+  <button class="btn b-ocupado" onclick="enviar('M:6')">OCUPADO (Manual)</button>
+  <button class="btn b-repo" onclick="enviar('M:5')">REPORTADO (En Camino)</button>
+  <button class="btn b-nequi" onclick="enviar('M:1')">Logo NEQUI Fijo</button>
+  <button class="btn b-fuera" onclick="enviar('M:2')">FUERA DE SERVICIO</button>
+  <button class="btn b-pico" onclick="enviar('M:3')">PICO Y PLACA</button>
+
+  <div class="caja">
+    <p>Texto Personalizado:</p>
+    <input type="text" id="txtCustom" placeholder="EJ: VOY PARA EL CENTRO" maxlength="25">
+    <button class="btn b-custom" onclick="enviarTexto()">Mostrar Mensaje</button>
+  </div>
+
+  <div class="caja">
+    <p>Brillo de Pantalla:</p>
+    <input type="range" min="5" max="100" value="15" onchange="enviar('B:' + this.value)">
+    <p style="margin-top: 15px;">Velocidad del Texto:</p>
+    <input type="range" min="20" max="150" value="60" dir="rtl" onchange="enviar('V:' + this.value)">
+  </div>
+
+  <script>
+    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+    const encoder      = new TextEncoder();
+
+    let bleDevice = null;
+    let bleChar   = null;
+
+    function actualizarEstado(conectado) {
+      const el = document.getElementById("estado");
+      el.textContent = conectado ? "Conectado a Taxi_LED" : "Desconectado";
+      el.className = conectado ? "status ok" : "status";
+    }
+
+    async function conectarBLE() {
+      try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: "Taxi_LED" }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        bleDevice.addEventListener("gattserverdisconnected", () => {
+          bleChar = null;
+          actualizarEstado(false);
+        });
+
+        const server  = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        bleChar       = await service.getCharacteristic(CHAR_UUID);
+
+        actualizarEstado(true);
+        if (navigator.vibrate) navigator.vibrate(80);
+      } catch (err) {
+        alert("No se pudo conectar: " + err);
+      }
+    }
+
+    async function enviar(cmd) {
+      if (!bleChar) {
+        alert("Primero presiona 'Conectar Bluetooth'");
+        return;
+      }
+      try {
+        await bleChar.writeValueWithoutResponse(encoder.encode(cmd));
+        if (navigator.vibrate) navigator.vibrate(40);
+      } catch (err) {
+        console.error(err);
+        actualizarEstado(false);
+      }
+    }
+
+    function enviarTexto() {
+      const input = document.getElementById("txtCustom");
+      const t = input.value.trim();
+      if (t !== "") {
+        enviar("T:" + t);
+        input.value = "";
+      }
+    }
+  </script>
+</body>
+</html>

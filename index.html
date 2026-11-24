@@ -10,9 +10,10 @@
   <style>
     body { font-family: system-ui, sans-serif; background: #121212; color: #fff; text-align: center; padding: 15px; margin: 0; }
     h1 { color: #F3CA20; font-size: 22px; margin: 10px 0 15px; }
-    .status { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; margin-bottom: 12px; background: #333; color: #ff6b6b; }
+    .status { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; margin-bottom: 12px; background: #333; color: #ff6b6b; transition: 0.2s; }
     .status.ok { background: #1e4620; color: #4caf50; }
-    .btn { width: 100%; max-width: 350px; padding: 15px; margin: 6px 0; font-size: 16px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; }
+    .status.tx { background: #4a3b00; color: #F3CA20; }
+    .btn { width: 100%; max-width: 350px; padding: 15px; margin: 6px 0; font-size: 16px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; touch-action: manipulation; }
     .btn:active { transform: scale(0.96); }
     .b-ble { background: #0082FC; color: #fff; margin-bottom: 15px; }
     .b-libre { background: #27ae60; color: #fff; }
@@ -47,10 +48,10 @@
   </div>
 
   <div class="caja">
-    <p>Brillo de Pantalla:</p>
-    <input type="range" min="5" max="100" value="15" onchange="enviar('B:' + this.value)">
+    <p>Brillo de Pantalla: <span id="valBrillo">15</span>%</p>
+    <input type="range" min="5" max="100" value="15" oninput="sliderSuave('B:', this.value, 'valBrillo')" onchange="enviar('B:' + this.value)">
     <p style="margin-top: 15px;">Velocidad del Texto:</p>
-    <input type="range" min="20" max="150" value="60" dir="rtl" onchange="enviar('V:' + this.value)">
+    <input type="range" min="20" max="150" value="60" dir="rtl" oninput="sliderSuave('V:', this.value)" onchange="enviar('V:' + this.value)">
   </div>
 
   <script>
@@ -58,13 +59,16 @@
     const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
     const encoder      = new TextEncoder();
 
-    let bleDevice = null;
-    let bleChar   = null;
+    let bleDevice        = null;
+    let bleChar          = null;
+    let comandoPendiente = null;
+    let enviando         = false;
+    let timerSlider      = null;
 
-    function actualizarEstado(conectado) {
+    function actualizarEstado(tipo, texto) {
       const el = document.getElementById("estado");
-      el.textContent = conectado ? "Conectado a Taxi_LED" : "Desconectado";
-      el.className = conectado ? "status ok" : "status";
+      el.textContent = texto;
+      el.className = "status " + tipo;
     }
 
     async function conectarBLE() {
@@ -76,32 +80,64 @@
 
         bleDevice.addEventListener("gattserverdisconnected", () => {
           bleChar = null;
-          actualizarEstado(false);
+          comandoPendiente = null;
+          enviando = false;
+          actualizarEstado("", "Desconectado");
         });
 
         const server  = await bleDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         bleChar       = await service.getCharacteristic(CHAR_UUID);
 
-        actualizarEstado(true);
+        actualizarEstado("ok", "Conectado a Taxi_LED");
         if (navigator.vibrate) navigator.vibrate(80);
       } catch (err) {
         alert("No se pudo conectar: " + err);
       }
     }
 
-    async function enviar(cmd) {
+    function enviar(cmd) {
       if (!bleChar) {
         alert("Primero presiona 'Conectar Bluetooth'");
         return;
       }
-      try {
-        await bleChar.writeValueWithoutResponse(encoder.encode(cmd));
-        if (navigator.vibrate) navigator.vibrate(40);
-      } catch (err) {
-        console.error(err);
-        actualizarEstado(false);
+      // Sobrescribe con el comando más reciente sin saturar la cola
+      comandoPendiente = cmd;
+      procesarCola();
+    }
+
+    async function procesarCola() {
+      if (enviando || !comandoPendiente || !bleChar) return;
+      enviando = true;
+
+      while (comandoPendiente && bleChar) {
+        const cmdActual = comandoPendiente;
+        comandoPendiente = null;
+        actualizarEstado("tx", "Enviando...");
+
+        try {
+          const escritura = bleChar.writeValueWithoutResponse(encoder.encode(cmdActual));
+          const limiteTiempo = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout BLE")), 1500)
+          );
+          await Promise.race([escritura, limiteTiempo]);
+
+          if (navigator.vibrate) navigator.vibrate(35);
+          if (bleChar) actualizarEstado("ok", "Conectado a Taxi_LED");
+        } catch (err) {
+          console.warn("Paquete lento o señal débil:", err);
+          if (bleChar) actualizarEstado("tx", "Señal débil (reintentando)");
+        }
       }
+      enviando = false;
+    }
+
+    function sliderSuave(prefijo, valor, idLabel) {
+      if (idLabel) document.getElementById(idLabel).textContent = valor;
+      clearTimeout(timerSlider);
+      timerSlider = setTimeout(() => {
+        if (bleChar) enviar(prefijo + valor);
+      }, 120);
     }
 
     function enviarTexto() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taxi-led-v2';
+const CACHE_NAME = 'taxi-led-v3';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
